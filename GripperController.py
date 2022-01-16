@@ -1,7 +1,7 @@
 import time
 
 import serial
-from GripperListenerI import *
+from .GripperListenerI import GripperListenerI
 from typing import List
 from threading import Thread
 import csv
