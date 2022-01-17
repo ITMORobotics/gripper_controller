@@ -1,2 +1,2 @@
 from .GripperController import GripperSerialController
-#from .GripperListenerI import GripperListenerI
+from .GripperListenerI import GripperListenerI
