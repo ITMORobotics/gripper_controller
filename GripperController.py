@@ -179,7 +179,7 @@ class GripperSerialController(object):
 
     def __send_message(self, message: bytes):
         self.ser.write(message)
-        gripper.ser.flushOutput()
+        self.ser.flushOutput()
 
     def attach(self, listener: GripperListenerI) -> None:
         print("Subject: Attached an observer.")
