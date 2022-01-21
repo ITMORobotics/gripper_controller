@@ -40,19 +40,10 @@ class GripperSerialController(object):
     __MAX_ANGLE = 1023
     __MIN_ANGLE = 0
 
-    __instance = None
 
     __listeners: List[GripperListenerI] = []
 
-    def __new__(cls, serial_port: str, baud_rate: int):
-        if cls.__instance is None:
-            cls.__instance = super(GripperSerialController, cls).__new__(cls)
-            cls.__instance.__initialized = False
-        return cls.__instance
-
     def __init__(self, serial_port: str, baud_rate: int):
-        if self.__initialized:
-            return
         self.ser = serial.Serial(serial_port, baud_rate, timeout=1)
         self.ser.reset_output_buffer()
         self.ser.reset_input_buffer()
