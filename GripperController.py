@@ -1,7 +1,7 @@
 import time
 
 import serial
-from .GripperListenerI import *
+from GripperListenerI import *
 #from .GripperListenerI import GripperListenerI
 from typing import List
 from threading import Thread
@@ -40,7 +40,6 @@ class GripperSerialController(object):
     __MAX_ANGLE = 1023
     __MIN_ANGLE = 0
 
-
     __listeners: List[GripperListenerI] = []
 
     def __init__(self, serial_port: str, baud_rate: int):
@@ -66,22 +65,22 @@ class GripperSerialController(object):
                     break
                 incoming_bytes += self.ser.read(6)
                 val_left = (incoming_bytes[3] << 8) + incoming_bytes[4]
-                val_right =  (incoming_bytes[5] << 8) + incoming_bytes[6]
+                val_right = (incoming_bytes[5] << 8) + incoming_bytes[6]
                 code = incoming_bytes[2]
                 if code == self.__BACK_TEMPERATURE:
                     val_left = val_left
                     val_right = val_right
                 elif code == self.__BACK_POSITION:
-                    val_left = val_left/1023*300
-                    val_right = val_right/1023*300
+                    val_left = val_left / 1023 * 300
+                    val_right = val_right / 1023 * 300
                 elif code == self.__BACK_VOLTAGE:
-                    val_left = val_left/10.0
-                    val_right = val_right/10.0
+                    val_left = val_left / 10.0
+                    val_right = val_right / 10.0
                 elif code == self.__BACK_LOAD:
-                    val_left = val_left*100/1023-100
-                    val_right = val_right*100/1023-100
+                    val_left = val_left * 100 / 1023
+                    val_right = val_right * 100 / 1023
                 for listener in self.__listeners:
-                    listener.process_data(incoming_bytes, code,val_left,val_right)
+                    listener.process_data(incoming_bytes, code, val_left, val_right)
 
     def start_listening(self):
         """
@@ -91,26 +90,48 @@ class GripperSerialController(object):
         th.start()
 
     def open(self):
-        """Функция открытия гриппера со стандартной скоростью"""
+        """
+        Функция открытия гриппера со стандартной скоростью в стандартное открытое положение
+        """
         self.__send_message(self.__make_message(type_package=self.__SEND_OPEN))
 
     def close(self):
-        """Функция закрытия гриппера со стандартной скоростью"""
+        """
+        Функция закрытия гриппера со стандартной скоростью.
+        Сдвигает губки в базовое закрытое положение,
+        усилие сжатия не регулируется и достаточно мало
+        """
         self.__send_message(self.__make_message(type_package=self.__SEND_CLOSE))
 
     def release(self):
+        """
+        Разблокировать двигатели
+        (Перевести двигатели в режим вращения с нулевыми скоростью/уcилием)
+        """
         self.__send_message(self.__make_message(type_package=self.__SEND_RELEASE))
 
     def unrelease(self):
+        """
+        Заблокирвоать двигатели
+        Перевести двигатели в режим удержания угла (при вызове фиксируются в текущем положении)
+        """
         self.__send_message(self.__make_message(type_package=self.__SEND_UNRELEASE))
 
-    def open_torque(self, speed: int):
-
+    def open_speed(self, speed: int):
+        """
+        Функция открытия гриппера со заданной скоростью
+        """
+        speed = int(speed*1023/100)
+        speed = ((speed <= 1023) and (speed >= 0) * speed) + (1023 * speed > 1023)
         self.__send_message(self.__make_message(type_package=self.__SEND_OPEN_TORQUE, val1=speed))
 
-    def close_torque(self, speed: int):
-        """Функция закрытия гриппера со заданынм усилием"""
-        self.__send_message(self.__make_message(type_package=self.__SEND_CLOSE_TORQUE, val1=speed))
+    def close_torque(self, torque: int):
+        """
+        Функция закрытия гриппера со заданынм усилием
+        """
+        torque = int(torque * 1023 / 100)
+        torque = ((torque <= 1023) and (torque >= 0) * torque) + (1023 * (torque > 1023))
+        self.__send_message(self.__make_message(type_package=self.__SEND_CLOSE_TORQUE, val1=torque))
 
     def angle(self, angle: int):
         self.__send_message(self.__make_message(type_package=self.__SEND_ANGLE, val2=angle))
@@ -168,6 +189,12 @@ class GripperSerialController(object):
         Значение возвращается внещнему обработчику (`__listeners`) с кодом __BACK_TEMPERATURE
         """
         self.__send_message(self.__make_message(type_package=self.__GET_TEMPERATURE))
+    def check_completing_lact_command(self)-> bool:
+        """
+        Возвращает 
+        """
+
+
 
     def __send_message(self, message: bytes):
         self.ser.write(message)
@@ -188,9 +215,9 @@ class CSVPrinter(GripperListenerI):
 
     def __init__(self, filename: str):
         postfix_counter = 1
-        while os.path.exists('./'+str(postfix_counter)+"_"+ filename):
-            postfix_counter+=1
-        self.__filename = str(postfix_counter)+"_" +  filename
+        while os.path.exists('./' + str(postfix_counter) + "_" + filename):
+            postfix_counter += 1
+        self.__filename = str(postfix_counter) + "_" + filename
         with open(self.__filename, 'w', newline='') as csvfile:
             self.__writer = csv.DictWriter(csvfile, fieldnames=self.__fieldnames)
             self.__writer.writeheader()
@@ -205,25 +232,39 @@ class CSVPrinter(GripperListenerI):
 
 if __name__ == '__main__':
     try:
+        # Создание экземпляра гриппера на заданном порту
         gripper = GripperSerialController('/dev/ttyACM0', 57600)
+        # Подключние и запуск обработчиков входящих сообщений
         gripper.attach(listener=Printer())
         gripper.attach(listener=CSVPrinter('output.csv'))
         gripper.start_listening()
-        gripper.release()
-        time.sleep(5)
-        print("Closing wiht torque 0.5")
-        gripper.close_torque(300)
-
-        for i in range(100):
-            gripper.get_load()
-            gripper.get_position()
-            gripper.get_voltage()
-            gripper.get_temp()
-            time.sleep(0.1)
-        gripper.unrelease()
-        time.sleep(2)
+        time.sleep(3)
+        # Простое закрытие-открытие гриппера
+        gripper.close()
+        time.sleep(3)
         gripper.open()
-        time.sleep(2)
+        time.sleep(3)
+        # Закрытие с заданным усилием и открытие с заданной скоростью из диапазона 0 - 100
+        gripper.close_torque(30)
+        time.sleep(3)
+        gripper.open_speed(30)
+        time.sleep(3)
+        # Ослабить для свободного перещения и зафиксировать в текущем положении губки гриппера
+        gripper.release()
+        time.sleep(3)
+        gripper.unrelease()
+        time.sleep(3)
+
+        # Запросить нагрузку, позицию, напряжение и температуру с двигателя (обрабатывается слушателями)
+        # А так же статус выполнения последней команды на передвижение (TODO : записывается в переменную)
+        gripper.get_load()
+        gripper.get_position()
+        gripper.get_voltage()
+        gripper.get_temp()
+        time.sleep(3)
+
+        gripper.open()
+        time.sleep(4)
         gripper.release()
     except KeyboardInterrupt:
         gripper = GripperSerialController('/dev/ttyACM0', 57600)
