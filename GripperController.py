@@ -29,10 +29,12 @@ class GripperSerialController(object):
     __GET_LOAD = 20
     __GET_VOLTAGE = 30
     __GET_TEMPERATURE = 40
+    __GET_COMPLETING_MOVE = 45
     __BACK_POSITION = 50
     __BACK_LOAD = 60
     __BACK_VOLTAGE = 70
     __BACK_TEMPERATURE = 80
+    __LAST_MOVE_STATUS = 85
 
     __MAX_SPEED = 1023
     __MIN_SPEED = 0
@@ -46,6 +48,7 @@ class GripperSerialController(object):
         self.ser = serial.Serial(serial_port, baud_rate, timeout=1)
         self.ser.reset_output_buffer()
         self.ser.reset_input_buffer()
+        self.last_move_status = False
 
     def __listening(self) -> None:
         """
@@ -67,7 +70,12 @@ class GripperSerialController(object):
                 val_left = (incoming_bytes[3] << 8) + incoming_bytes[4]
                 val_right = (incoming_bytes[5] << 8) + incoming_bytes[6]
                 code = incoming_bytes[2]
-                if code == self.__BACK_TEMPERATURE:
+                if code == self.__LAST_MOVE_STATUS:
+                    if val_left == 1 and val_right == 1:
+                        self.last_move_status = True
+                    else:
+                        self.last_move_status = False
+                elif code == self.__BACK_TEMPERATURE:
                     val_left = val_left
                     val_right = val_right
                 elif code == self.__BACK_POSITION:
@@ -179,7 +187,6 @@ class GripperSerialController(object):
         """
         Функция получения напряжения на двигателях.
         Значение возвращается внещнему обработчику (`__listeners`) с кодом __BACK_POSITION
-
         """
         self.__send_message(self.__make_message(type_package=self.__GET_POSITION))
 
@@ -189,14 +196,17 @@ class GripperSerialController(object):
         Значение возвращается внещнему обработчику (`__listeners`) с кодом __BACK_TEMPERATURE
         """
         self.__send_message(self.__make_message(type_package=self.__GET_TEMPERATURE))
-    def check_completing_lact_command(self)-> bool:
-        """
-        Возвращает 
-        """
 
-
+    def get_completing_lact_command(self):
+        """
+        Функция получения статуса последней команды.
+        Значение возвращается внещнему обработчику (`__listeners`) с кодом __LAST_MOVE_STATUS и в переменную last_move_status
+        """
+        self.__send_message(self.__make_message(type_package=self.__GET_COMPLETING_MOVE))
 
     def __send_message(self, message: bytes):
+        if 100 <= message[2] <= 150:
+            self.last_move_status = False
         self.ser.write(message)
         self.ser.flushOutput()
 
@@ -239,11 +249,17 @@ if __name__ == '__main__':
         gripper.attach(listener=CSVPrinter('output.csv'))
         gripper.start_listening()
         time.sleep(3)
+        gripper.get_completing_lact_command()
         # Простое закрытие-открытие гриппера
         gripper.close()
+        print(gripper.last_move_status)
         time.sleep(3)
+        print(gripper.last_move_status)
         gripper.open()
+        print("AFTER OPEN")
+        print(gripper.last_move_status)
         time.sleep(3)
+        print(gripper.last_move_status)
         # Закрытие с заданным усилием и открытие с заданной скоростью из диапазона 0 - 100
         gripper.close_torque(30)
         time.sleep(3)
@@ -256,7 +272,7 @@ if __name__ == '__main__':
         time.sleep(3)
 
         # Запросить нагрузку, позицию, напряжение и температуру с двигателя (обрабатывается слушателями)
-        # А так же статус выполнения последней команды на передвижение (TODO : записывается в переменную)
+        # А так же статус выполнения последней команды на передвижение (записывается в переменную last_move_status)
         gripper.get_load()
         gripper.get_position()
         gripper.get_voltage()
