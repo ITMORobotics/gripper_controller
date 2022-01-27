@@ -2,7 +2,7 @@ import time
 import serial
 
 #from GripperListenerI import *
-from .GripperListenerI import GripperListenerI
+from GripperListenerI import GripperListenerI
 from typing import List
 from threading import Thread
 import csv
@@ -65,6 +65,7 @@ class GripperSerialController(object):
                 self.__listening_th = None
                 time.sleep(0.1)
                 if gripper_id == self.gripper_id:
+                    print("Gripper with id " + str(gripper_id) + " found")
                     break
                 else:
                     self.ser.close()
@@ -77,6 +78,10 @@ class GripperSerialController(object):
         self.ser.reset_output_buffer()
         self.ser.reset_input_buffer()
         self.last_move_status = False
+
+    def __del__(self):
+        if self.ser is not None:
+            self.ser.close()
 
     def __serial_ports(self):
         if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
