@@ -1,10 +1,12 @@
 #include "Arduino.h"
 #include "AX12A.h"     // https://github.com/jumejume1/AX-12A-servo-library
 
+#define GRIPPER_ID 5
 #define DirectionPin  (7u)
 #define BaudRate      (1000000ul)
 #define LEFT_ID 13
 #define RIGHT_ID 1
+
 // 13 - левый, 1 - правый. Смотреть со стороны написанных ID
 
 #define DEFAULT_WORK_SPEED 50
@@ -18,12 +20,14 @@
 #define SEND_GET_VOLT 30 
 #define SEND_GET_TEMP 40
 #define SEND_GET_COMP_MOVE 45
+#define SEND_GET_GRIPP_ID 46
 
 #define BACK_GET_POS 50
 #define BACK_GET_LOAD 60
 #define BACK_GET_VOLT 70 
 #define BACK_GET_TEMP 80
 #define BACK_GET_COMP_MOVE 85
+#define BACK_GRIPP_ID 86
 
 #define START_PACKAGE_FLAG 255
 
@@ -203,15 +207,21 @@ void back_complete_packet(){
   position_completed_l = check_left_position();
   send_package(BACK_GET_COMP_MOVE,position_completed_l,position_completed_r);
   }
+  
+void back_gripper_id_packet(){
+  send_package(BACK_GRIPP_ID,GRIPPER_ID,GRIPPER_ID);
+  }
 
 
 bool check_left_position(){
+   if (required_position_l == -1) return true;
    int current_position_l = ax12a.readPosition(LEFT_ID);
    if (current_position_l == -1) return false;
    return  ((required_position_l - ERROR_CHECK_POSITION_WINDOW) <= current_position_l )&& (current_position_l <= (required_position_l + ERROR_CHECK_POSITION_WINDOW));
   }
   
 bool check_right_position(){
+  if (required_position_r == -1) return true;
   int current_position_r = ax12a.readPosition(RIGHT_ID);
   if (current_position_r == -1) return false;
   return  ((required_position_r - ERROR_CHECK_POSITION_WINDOW)<=current_position_r) && (current_position_r <= (required_position_r + ERROR_CHECK_POSITION_WINDOW));
@@ -251,8 +261,8 @@ void loop() {
     }
   } 
   if (!(position_completed_l && position_completed_r)){
-        position_completed_l = check_right_position();
-        position_completed_r = check_left_position();
+        position_completed_l = check_right_position() ;
+        position_completed_r = check_left_position() ;
         if (position_completed_l && position_completed_r){
           back_complete_packet();
           } 
@@ -272,18 +282,21 @@ void releasem(){
           close_speed_regulation = -1;
           ax12a.setEndless(RIGHT_ID, OFF);
           ax12a.setEndless(LEFT_ID, OFF);
-          ax12a.move(RIGHT_ID,ax12a.readPosition(RIGHT_ID));
-          ax12a.move(LEFT_ID,ax12a.readPosition(LEFT_ID));
+          ax12a.move(RIGHT_ID, ax12a.readPosition(RIGHT_ID));
+          ax12a.move(LEFT_ID, ax12a.readPosition(LEFT_ID));
   }
   
   void reset_completing(){
     position_completed_l = false;
     position_completed_r = false;
-    }
+  }
     
 void choose_control(byte packet[6]){
   switch(packet[0]){
     
+    case SEND_GET_GRIPP_ID:
+          back_gripper_id_packet();
+          break;
     case SEND_GET_POS:
           back_position_packet();
           break;
@@ -301,12 +314,18 @@ void choose_control(byte packet[6]){
           break;
           
     case RELEASE:
+          reset_completing();
+          required_position_l = -1;
+          required_position_r = -1;
           ax12a.turn(LEFT_ID, LEFT, 0);
           ax12a.turn(RIGHT_ID, RIGHT, 0);
           releasem();
           break;
           
     case UNRELEASE:
+          reset_completing();
+          required_position_l = -1;
+          required_position_r = -1;
           unreleasem();
           break;
           
