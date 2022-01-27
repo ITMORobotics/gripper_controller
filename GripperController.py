@@ -2,7 +2,7 @@ import time
 import serial
 
 #from GripperListenerI import *
-from .GripperListenerI import GripperListenerI
+from GripperListenerI import GripperListenerI
 from typing import List
 from threading import Thread
 import csv
@@ -51,26 +51,22 @@ class GripperSerialController(object):
 
     def __init__(self, gripper_id: int, baud_rate: int):
         serial_port_list = self.__serial_ports()
-        print(serial_port_list)
-        self.gripper_id = -1
         self.ser = None
         self.__listening_th = None
         for port in serial_port_list:
+            self.gripper_id = -1
             try:
                 self.ser = serial.Serial(port, baud_rate, timeout=1)
-                self.ser.reset_output_buffer()
-                self.ser.reset_input_buffer()
                 self.start_listening()
                 self.get_id()
                 time.sleep(0.1)
                 self.__listening_th = None
-                time.sleep(0.02)
+                time.sleep(0.01)
                 if gripper_id == self.gripper_id:
-                    print("Gripper with id " + str(gripper_id) + " found")
+                    print("Gripper with id " + str(self.gripper_id) + " found")
                     break
                 else:
-                    self.ser.close()
-                    self.ser = None
+                    self.__del__()
             except:
                 None
 
@@ -81,8 +77,10 @@ class GripperSerialController(object):
         self.last_move_status = False
 
     def __del__(self):
+        self.__listening_th = None
         if self.ser is not None:
             self.ser.close()
+        self.ser = None
 
     def __serial_ports(self):
         if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
@@ -119,13 +117,13 @@ class GripperSerialController(object):
                 val_left = (incoming_bytes[3] << 8) + incoming_bytes[4]
                 val_right = (incoming_bytes[5] << 8) + incoming_bytes[6]
                 code = incoming_bytes[2]
-                if code == self.__LAST_MOVE_STATUS:
+                if code == self.__BACK_GRIPPER_ID:
+                    self.gripper_id = val_left
+                elif code == self.__LAST_MOVE_STATUS:
                     if val_left == 1 and val_right == 1:
                         self.last_move_status = True
                     else:
                         self.last_move_status = False
-                elif code == self.__BACK_GRIPPER_ID:
-                    self.gripper_id = val_left
                 elif code == self.__BACK_TEMPERATURE:
                     val_left = val_left
                     val_right = val_right
@@ -301,8 +299,12 @@ class CSVPrinter(GripperListenerI):
 if __name__ == '__main__':
     try:
         # Создание экземпляра гриппера на заданном порту
-        gripper = GripperSerialController(5, 57600)
-
+        gripper = None
+        for i in range(10):
+            try:
+                gripper = GripperSerialController(i, 57600)
+            except:
+                continue
         # Подключние и запуск обработчиков входящих сообщений
         gripper.attach(listener=Printer())
         gripper.attach(listener=CSVPrinter('output.csv'))
