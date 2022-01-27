@@ -51,6 +51,7 @@ class GripperSerialController(object):
 
     def __init__(self, gripper_id: int, baud_rate: int):
         serial_port_list = self.__serial_ports()
+        print(serial_port_list)
         self.gripper_id = -1
         self.ser = None
         self.__listening_th = None
@@ -61,9 +62,9 @@ class GripperSerialController(object):
                 self.ser.reset_input_buffer()
                 self.start_listening()
                 self.get_id()
-                time.sleep(1)
-                self.__listening_th = None
                 time.sleep(0.1)
+                self.__listening_th = None
+                time.sleep(0.02)
                 if gripper_id == self.gripper_id:
                     print("Gripper with id " + str(gripper_id) + " found")
                     break
