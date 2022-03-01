@@ -1,14 +1,29 @@
 import time
 import serial
 
-#from GripperListenerI import *
-from .GripperListenerI import GripperListenerI
+from GripperListenerI import GripperListenerI
 from typing import List
 from threading import Thread
 import csv
 import os
 import sys
 import glob
+
+
+def _serial_ports():
+    if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
+        ports = glob.glob('/dev/tty[A-Za-z]*')
+    else:
+        raise EnvironmentError('Unsupported platform')
+    result = []
+    for port in ports:
+        try:
+            s = serial.Serial(port)
+            s.close()
+            result.append(port)
+        except(OSError, serial.SerialException):
+            pass
+    return result
 
 
 class GripperSerialController(object):
@@ -47,31 +62,44 @@ class GripperSerialController(object):
     __MAX_ANGLE = 1023
     __MIN_ANGLE = 0
 
-    __listeners: List[GripperListenerI] = []
-
-    def __init__(self, gripper_id: int, baud_rate: int):
-        serial_port_list = self.__serial_ports()
+    def __init__(self, conn_arg, baud_rate: int = 57600):
+        self.__listeners: List[GripperListenerI] = []
         self.ser = None
         self.__listening_th = None
-        for port in serial_port_list:
-            self.gripper_id = -1
-            try:
-                self.ser = serial.Serial(port, baud_rate, timeout=1)
-                self.start_listening()
-                self.get_id()
-                time.sleep(0.1)
-                self.__listening_th = None
-                time.sleep(0.01)
-                if gripper_id == self.gripper_id:
-                    print("Gripper with id " + str(self.gripper_id) + " found")
-                    break
-                else:
-                    self.__del__()
-            except:
-                None
+        self.gripper_id = -1
 
-        if self.ser == None:
-            raise Exception("Gripper with id " + str(gripper_id) + " not found")
+        if isinstance(conn_arg, str):
+            self.ser = serial.Serial(conn_arg, baud_rate, timeout=2)
+            self.start_listening()
+            time.sleep(1)
+            self.get_id()
+            time.sleep(0.5)
+            self.__listening_th = None
+            time.sleep(0.01)
+            if self.gripper_id == -1:
+                self.__del__()
+        elif isinstance(conn_arg, int):
+            serial_port_list = _serial_ports()
+            for port in serial_port_list:
+                try:
+                    self.ser = serial.Serial(port, baud_rate, timeout=1)
+                    self.start_listening()
+                    time.sleep(1)
+                    self.get_id()
+                    time.sleep(0.5)
+                    self.__listening_th = None
+                    time.sleep(0.01)
+                    if conn_arg == self.gripper_id:
+                        print("Gripper with id " + str(self.gripper_id) + " found")
+                        break
+                    else:
+                        self.__del__()
+                except:
+                    pass
+        else:
+            raise Exception("Wrong gripper connection args")
+        if self.ser is None:
+            raise Exception("Gripper with id or on port " + str(conn_arg) + " not found")
         self.ser.reset_output_buffer()
         self.ser.reset_input_buffer()
         self.last_move_status = False
@@ -81,21 +109,6 @@ class GripperSerialController(object):
         if self.ser is not None:
             self.ser.close()
         self.ser = None
-
-    def __serial_ports(self):
-        if sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
-            ports = glob.glob('/dev/tty[A-Za-z]*')
-        else:
-            raise EnvironmentError('Unsupported platform')
-        result = []
-        for port in ports:
-            try:
-                s = serial.Serial(port)
-                s.close()
-                result.append(port)
-            except(OSError, serial.SerialException):
-                pass
-        return result
 
     def __listening(self) -> None:
         """
@@ -296,57 +309,68 @@ class CSVPrinter(GripperListenerI):
                  "val2": right_val})
 
 
+def get_all_grippers() -> list[GripperSerialController]:
+    gripper_list = []
+    serial_port_list = _serial_ports()
+    for s in serial_port_list:
+        try:
+            gr = GripperSerialController(s, 57600)
+            if gr is not None:
+                gripper_list.append(gr)
+        except:
+            pass
+    return gripper_list
+
+
 if __name__ == '__main__':
     try:
         # Создание экземпляра гриппера на заданном порту
-        gripper = None
-        for i in range(10):
-            try:
-                gripper = GripperSerialController(i, 57600)
-            except:
-                continue
-        # Подключние и запуск обработчиков входящих сообщений
-        gripper.attach(listener=Printer())
-        gripper.attach(listener=CSVPrinter('output.csv'))
-        gripper.start_listening()
-        time.sleep(3)
-        gripper.release()
-        gripper.get_completing_lact_command()
-        time.sleep(0.2)
-        print(gripper.last_move_status)
-        time.sleep(3)
-        gripper.get_completing_lact_command()
-        # Простое закрытие-открытие гриппера
-        gripper.close()
-        time.sleep(3)
-        print(gripper.last_move_status)
-        gripper.open()
-        time.sleep(3)
-        print(gripper.last_move_status)
-        # Закрытие с заданным усилием и открытие с заданной скоростью из диапазона 0 - 100
-        gripper.close_torque(30)
-        time.sleep(3)
-        gripper.open_speed(30)
-        time.sleep(3)
-        # Ослабить для свободного перещения и зафиксировать в текущем положении губки гриппера
-        gripper.release()
-        time.sleep(3)
-        gripper.unrelease()
-        time.sleep(3)
+        grippers = get_all_grippers()
+        p = Printer()
+        csv_p = CSVPrinter('output.csv')
+        for gr in grippers:
+            # Подключние и запуск обработчиков входящих сообщений
+            gr.attach(listener=p)
+            gr.attach(listener=csv_p)
+            gr.start_listening()
+            time.sleep(3)
+            gr.release()
+            gr.get_completing_lact_command()
+            time.sleep(0.2)
+            print(gr.last_move_status)
+            time.sleep(3)
+            gr.get_completing_lact_command()
+            # Простое закрытие-открытие гриппера
+            gr.close()
+            time.sleep(5)
+            print(gr.last_move_status)
+            gr.open()
+            time.sleep(3)
+            print(gr.last_move_status)
+            # Закрытие с заданным усилием и открытие с заданной скоростью из диапазона 0 - 100
+            gr.close_torque(30)
+            time.sleep(2)
+            gr.open_speed(30)
+            time.sleep(2)
+            # Ослабить для свободного перещения и зафиксировать в текущем положении губки гриппера
+            gr.release()
+            time.sleep(1)
+            gr.unrelease()
+            time.sleep(1)
 
-        # Запросить нагрузку, позицию, напряжение и температуру с двигателя (обрабатывается слушателями)
-        # А так же статус выполнения последней команды на передвижение (записывается в переменную last_move_status)
-        gripper.get_load()
-        gripper.get_position()
-        gripper.get_voltage()
-        gripper.get_temp()
-        time.sleep(3)
+            # Запросить нагрузку, позицию, напряжение и температуру с двигателя (обрабатывается слушателями)
+            # А так же статус выполнения последней команды на передвижение (записывается в переменную last_move_status)
+            gr.get_load()
+            gr.get_position()
+            gr.get_voltage()
+            gr.get_temp()
+            time.sleep(3)
 
-        gripper.open()
-        time.sleep(4)
-        gripper.release()
-        # gripper2.release()
+            gr.open()
+            time.sleep(4)
+            gr.release()
+            # gripper2.release()
     except KeyboardInterrupt:
-        gripper = GripperSerialController(5, 57600)
+        gripper = GripperSerialController(6, 57600)
         gripper.release()
         print("Stopped by KeyboardInterrupt")
