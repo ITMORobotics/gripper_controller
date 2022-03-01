@@ -147,7 +147,11 @@ class GripperSerialController(object):
                     val_left = val_left / 10.0
                     val_right = val_right / 10.0
                 elif code == self.__BACK_LOAD:
-                    val_left = val_left * 100 / 1023
+                    if val_left > 1023:
+                       val_left = 1023-val_left
+                    if val_right > 1023:
+                       val_right = 1023-val_right
+                    val_left = -val_left * 100 / 1023
                     val_right = val_right * 100 / 1023
                 for listener in self.__listeners:
                     listener.process_data(incoming_bytes, code, val_left, val_right)
@@ -309,7 +313,7 @@ class CSVPrinter(GripperListenerI):
                  "val2": right_val})
 
 
-def get_all_grippers() -> list[GripperSerialController]:
+def get_all_grippers():
     gripper_list = []
     serial_port_list = _serial_ports()
     for s in serial_port_list:
